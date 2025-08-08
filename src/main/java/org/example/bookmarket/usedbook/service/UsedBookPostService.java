@@ -11,6 +11,7 @@ import org.example.bookmarket.category.entity.Category;
 import org.example.bookmarket.category.repository.CategoryRepository;
 import org.example.bookmarket.common.handler.exception.CustomException;
 import org.example.bookmarket.common.handler.exception.ErrorCode;
+import org.example.bookmarket.common.service.S3UploadResponse;
 import org.example.bookmarket.common.service.S3UploadService;
 import org.example.bookmarket.usedbook.dto.UsedBookPostRequest;
 import org.example.bookmarket.usedbook.entity.UsedBook;
@@ -46,7 +47,7 @@ public class UsedBookPostService {
 
     @Transactional
     public void registerUsedBook(UsedBookPostRequest request) {
-        User seller = getCurrentUser(); // 현재 로그인한 사용자 정보를 가져옵니다.
+        User seller = getCurrentUser();
 
         Book book = bookService.getOrCreateByIsbn(request.getIsbn());
 
@@ -57,30 +58,32 @@ public class UsedBookPostService {
             }
         }
 
-        List<String> imageUrls = new ArrayList<>();
+        List<S3UploadResponse> s3UploadResponses = new ArrayList<>();
         if (request.getImages() != null && !request.getImages().isEmpty()) {
             for (MultipartFile imageFile : request.getImages()) {
                 if (imageFile != null && !imageFile.isEmpty()) {
-                    String imageUrl = s3UploadService.upload(imageFile, "used-book-images");
-                    imageUrls.add(imageUrl);
+                    s3UploadResponses.add(s3UploadService.upload(imageFile, "used-book-images"));
                 }
             }
         }
 
-        if (imageUrls.isEmpty()) {
+        if (s3UploadResponses.isEmpty()) {
             throw new CustomException(ErrorCode.USED_BOOK_IMAGE_REQUIRED);
         }
 
         PriceSuggestResponse aiResponse = null;
-        String representativeImageUrl = imageUrls.get(0);
+        String representativeImageKey = s3UploadResponses.get(0).key(); // AI 분석에는 Key 사용
         try {
             int basePrice = Objects.requireNonNullElse(book.getNewPrice(), 30000);
-            aiResponse = aiService.suggestPriceFromImage(representativeImageUrl, basePrice);
+            aiResponse = aiService.suggestPriceFromImage(representativeImageKey, basePrice);
         } catch (IOException e) {
             log.error("책 등록 중 AI 이미지 분석에 실패했습니다. ISBN: {}", request.getIsbn(), e);
             throw new CustomException(ErrorCode.AI_ANALYSIS_FAILED);
         }
 
+        if (request.getCategoryId() == null) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "카테고리를 선택해주세요.");
+        }
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new CustomException(ErrorCode.CATEGORY_NOT_FOUND));
 
@@ -97,6 +100,7 @@ public class UsedBookPostService {
                 .status("FOR_SALE")
                 .build();
 
+        List<String> imageUrls = s3UploadResponses.stream().map(S3UploadResponse::url).toList();
         List<UsedBookImage> usedBookImages = imageUrls.stream()
                 .map(url -> UsedBookImage.builder().imageUrl(url).build())
                 .toList();
@@ -147,11 +151,6 @@ public class UsedBookPostService {
         log.info("중고책이 수정되었습니다. ID: {}", usedBookId);
     }
 
-    /**
-     * Spring Security의 SecurityContextHolder에서 현재 인증된 사용자 정보를 조회하여 반환하는 메소드입니다.
-     * 이메일/비밀번호 로그인과 소셜 로그인(KAKAO) 사용자를 모두 처리할 수 있습니다.
-     * @return 현재 로그인된 User 엔티티
-     */
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
@@ -160,9 +159,8 @@ public class UsedBookPostService {
 
         Object principal = authentication.getPrincipal();
         if (principal instanceof User user) {
-            return user; // 일반 로그인 사용자 처리
+            return user;
         } else if (principal instanceof OAuth2User oauth2User) {
-            // OAuth2 소셜 로그인 사용자 처리
             String socialId = oauth2User.getAttribute("id").toString();
             return userRepository.findBySocialTypeAndSocialId(SocialType.KAKAO, socialId)
                     .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND, "소셜 로그인 사용자를 DB에서 찾을 수 없습니다."));
@@ -170,6 +168,4 @@ public class UsedBookPostService {
 
         throw new CustomException(ErrorCode.AUTHENTICATION_FAILED, "지원하지 않는 인증 방식입니다.");
     }
-
-
 }

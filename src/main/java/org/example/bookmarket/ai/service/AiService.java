@@ -2,12 +2,14 @@ package org.example.bookmarket.ai.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.awspring.cloud.s3.S3Template;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.bookmarket.ai.dto.PriceSuggestResponse;
 import org.example.bookmarket.common.handler.exception.CustomException;
 import org.example.bookmarket.common.handler.exception.ErrorCode;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable; // ★ import 추가
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -34,6 +36,7 @@ public class AiService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final S3Template s3Template;
 
     @Value("${gemini.api.key}")
     private String apiKey;
@@ -41,13 +44,21 @@ public class AiService {
     @Value("${gemini.api.endpoint}")
     private String apiEndpoint;
 
-    public PriceSuggestResponse suggestPriceFromImage(String imageUrl, int newPrice) throws IOException {
+    @Value("${spring.cloud.aws.s3.bucket.name}")
+    private String bucketName;
+
+    // ★★★ 캐싱 기능 추가 ★★★
+    // 'ai-suggestions' 캐시를 사용하고, 이미지 Key와 새 책 가격을 조합하여 고유한 캐시 키를 생성합니다.
+    @Cacheable(value = "ai-suggestions", key = "#imageKey + '-' + #newPrice")
+    public PriceSuggestResponse suggestPriceFromImage(String imageKey, int newPrice) throws IOException {
+        log.info("--- AI 분석 캐시 없음! 실제 API를 호출합니다. Key: {}, Price: {} ---", imageKey, newPrice);
         String prompt = "당신은 중고책의 결함을 찾아내는 전문 분석가입니다. 이 사진을 보고 아래 '결함 목록' 중에서 해당하는 것을 모두 찾아서 키워드 리스트 형태로 알려주세요. 결함이 전혀 없으면 '없음'이라고 답해주세요. 결함 목록: [모서리 닳음, 커버 긁힘, 페이지 찢어짐, 물에 젖은 자국, 낙서 또는 필기, 변색 또는 황변, 스티커 부착] 결과는 반드시 '결함: [키워드1, 키워드2, ...]' 형식으로만 대답해주세요.";
 
         byte[] imageBytes;
-        try (InputStream inputStream = new URL(imageUrl).openStream()) {
+        try (InputStream inputStream = s3Template.download(bucketName, imageKey).getInputStream()) {
             imageBytes = inputStream.readAllBytes();
         }
+
         String base64EncodedImage = Base64.getEncoder().encodeToString(imageBytes);
 
         String requestBody = String.format("""
@@ -74,6 +85,7 @@ public class AiService {
         return new PriceSuggestResponse(defects, suggestedMinPrice, suggestedMaxPrice);
     }
 
+    // (이하 나머지 코드는 동일합니다)
     public List<String> extractKeywordsFromQuery(String userQuery) throws IOException {
         String prompt = String.format("다음 사용자 검색어에서 도서 검색에 사용할 핵심 키워드를 1~3개 추출해서 쉼표로 구분된 목록 형태로만 반환해줘. 다른 부가적인 설명은 절대로 추가하지 마. 사용자 검색어: \\\"%s\\\"", userQuery);
         String requestBody = createTextOnlyRequestBody(prompt);
@@ -108,9 +120,6 @@ public class AiService {
         }
     }
 
-    /**
-     * ✅ [수정] AI가 불필요한 제목을 생성하지 않도록 프롬프트를 개선하고, 그에 따라 후처리 로직을 제거하여 코드를 단순화했습니다.
-     */
     private String reviewWithPersona(String bookInfo) throws IOException {
         String prompt = String.format(
                 "당신은 가수이자 배우 '아이유' 페르소나야. " +
@@ -121,7 +130,6 @@ public class AiService {
         String requestBody = createTextOnlyRequestBody(prompt);
         String rawResponse = callGeminiApi(requestBody);
 
-        // AI가 제목을 생성하지 않도록 유도했으므로, 복잡한 문자열 처리 없이 바로 반환합니다.
         return rawResponse.trim();
     }
 

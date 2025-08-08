@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.bookmarket.auth.service.CustomOAuth2UserService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -12,7 +13,6 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 
 @Configuration
@@ -49,19 +49,20 @@ public class SecurityConfig {
                                 "/swagger-ui/**", "/v3/api-docs/**",
 
                                 // View(페이지) 관련 경로 허용
-                                "/used-books/register", // 등록 페이지
-                                "/used-books/{bookId}", // 상세 페이지
+                                "/used-books/new", // ★★★ 이 경로를 허용해야 합니다 ★★★
+                                "/used-books/{bookId}",
+                                "/used-books/{bookId}/edit",
 
                                 // API 관련 경로 허용
-                                "/api/used-books",          // 전체 책 목록 조회 API
-                                "/api/used-books/isbn/**"   // ISBN 조회 API (와일드카드 사용)
-
+                                "/api/used-books/isbn/**"
                         ).permitAll()
-                        .anyRequest().authenticated() // 위 경로 외 모든 요청은 인증 필요
+                        .requestMatchers("/api/**").authenticated() // API 경로는 인증 필요
+                        .anyRequest().authenticated() // 그 외 모든 요청은 인증 필요
                 )
                 .formLogin(form -> form
                         .loginPage("/auth/login")
                         .loginProcessingUrl("/auth/login")
+                        .defaultSuccessUrl("/", true)
                         .failureUrl("/auth/login?error=true")
                 )
                 .oauth2Login(oauth2 -> oauth2

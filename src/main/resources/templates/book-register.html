@@ -196,15 +196,15 @@
         analyzeBtn.disabled = true;
         analyzeBtn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>분석 중...`;
 
+        // ★★★ CSRF 토큰을 헤더에 추가하는 부분 ★★★
         const token = document.querySelector('meta[name="_csrf"]').getAttribute('content');
         const header = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
 
-        const headers = new Headers();
-        headers.append(header, token);
-
         fetch('/api/ai/suggest-price-from-upload', {
             method: 'POST',
-            headers: headers,
+            headers: {
+                [header]: token
+            },
             body: formData
         })
             .then(response => {
@@ -218,26 +218,20 @@
                 document.getElementById('ai-price-range').textContent = `${data.suggestedMinPrice.toLocaleString()}원 ~ ${data.suggestedMaxPrice.toLocaleString()}원`;
                 suggestionBox.style.display = 'block';
 
-                // 추천 최고가를 판매 가격에 자동 입력
                 const sellingPriceInput = document.getElementById('sellingPrice');
                 if (!sellingPriceInput.value) {
                     sellingPriceInput.value = data.suggestedMaxPrice;
                 }
 
-                // 책 상태 자동 선택 및 잠금
                 const conditionGradeSelect = document.getElementById('conditionGrade');
                 conditionGradeSelect.value = mapDefectsToCondition(data.detectedDefects);
-                conditionGradeSelect.disabled = true;
 
-                // 상세 설명 자동 생성
                 const detailedConditionTextarea = document.getElementById('detailedCondition');
                 detailedConditionTextarea.value = generateAiDescription(data);
             })
             .catch(error => {
                 alert(error.message);
                 console.error('AI 분석 중 오류 발생:', error);
-                // 오류 발생 시 잠금 해제
-                document.getElementById('conditionGrade').disabled = false;
             })
             .finally(() => {
                 analyzeBtn.disabled = false;
@@ -300,12 +294,8 @@
 
     removeImageBtn.addEventListener('click', function() {
         imageInput.value = '';
-
         previewContainer.classList.add('hidden');
         imagePlaceholder.classList.remove('hidden');
-
-        // 이미지 삭제 시, 책 상태 선택 잠금 해제
-        document.getElementById('conditionGrade').disabled = false;
     });
 
     // ## 기능 4: 헬퍼 함수들 ##
@@ -333,5 +323,6 @@
         return description;
     }
 </script>
+
 </body>
 </html>

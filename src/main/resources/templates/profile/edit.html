@@ -15,17 +15,22 @@
         <div class="w-full max-w-[600px] flex flex-col gap-6">
             <h1 class="text-2xl font-bold">프로필 수정</h1>
             <form id="profile-form" class="space-y-4">
+                <div>
+                    <label for="nickname" class="block text-sm font-medium leading-6 text-gray-900">닉네임</label>
+                    <input type="text" id="nickname" class="mt-2 block w-full rounded-md border-gray-300" th:value="${profile.nickname}" />
+                </div>
+
                 <label for="image" class="block text-sm font-medium leading-6 text-gray-900">프로필 이미지</label>
                 <div id="image-upload-box" class="mt-2 flex justify-center items-center rounded-lg border border-dashed border-gray-900/25 px-6 py-10 relative">
-                    <div id="preview-container" class="hidden relative">
-                        <img id="image-preview" src="#" alt="Image preview" class="h-48 rounded-lg" />
+                    <div id="preview-container" class="relative" th:classappend="${profile.profileImageUrl == null} ? 'hidden' : ''">
+                        <img id="image-preview" th:src="${profile.profileImageUrl}" alt="Image preview" class="h-48 rounded-lg" />
                         <button type="button" id="remove-image-btn" class="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 leading-none hover:bg-red-700">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
                     </div>
-                    <div id="image-placeholder" class="text-center">
+                    <div id="image-placeholder" class="text-center" th:classappend="${profile.profileImageUrl != null} ? 'hidden' : ''">
                         <svg class="mx-auto h-12 w-12 text-gray-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                             <path fill-rule="evenodd" d="M1.5 6a2.25 2.25 0 012.25-2.25h16.5A2.25 2.25 0 0122.5 6v12a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18V6zM3 16.06V18c0 .414.336.75.75.75h16.5A.75.75 0 0021 18v-1.94l-2.69-2.689a1.5 1.5 0 00-2.12 0l-.88.879.97.97a.75.75 0 11-1.06 1.06l-5.16-5.159a1.5 1.5 0 00-2.12 0L3 16.061zm10.125-7.81a1.125 1.125 0 112.25 0 1.125 1.125 0 01-2.25 0z" clip-rule="evenodd" />
                         </svg>
@@ -61,6 +66,7 @@
     /*<![CDATA[*/
     const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
     const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+    const existingImageUrl = /*[[${profile.profileImageUrl}]]*/ null;
 
     const imageInput = document.getElementById('image');
     const imageUploadBox = document.getElementById('image-upload-box');
@@ -73,28 +79,18 @@
         if (event.target.files && event.target.files[0]) {
             const file = event.target.files[0];
             const reader = new FileReader();
-
             reader.onload = (e) => {
                 imagePlaceholder.classList.add('hidden');
                 imagePreview.src = e.target.result;
                 previewContainer.classList.remove('hidden');
             };
-
             reader.readAsDataURL(file);
         }
     });
 
-    ['dragenter', 'dragover'].forEach(evt => {
-        imageUploadBox.addEventListener(evt, (e) => {
-            e.preventDefault();
-            imageUploadBox.classList.add('bg-gray-100');
-        });
-    });
-
-    imageUploadBox.addEventListener('dragleave', () => {
-        imageUploadBox.classList.remove('bg-gray-100');
-    });
-
+    // (드래그 앤 드롭 로직은 기존과 동일)
+    ['dragenter', 'dragover'].forEach(evt => imageUploadBox.addEventListener(evt, (e) => { e.preventDefault(); imageUploadBox.classList.add('bg-gray-100'); }));
+    imageUploadBox.addEventListener('dragleave', () => imageUploadBox.classList.remove('bg-gray-100'));
     imageUploadBox.addEventListener('drop', (e) => {
         e.preventDefault();
         imageUploadBox.classList.remove('bg-gray-100');
@@ -103,7 +99,6 @@
             const dt = new DataTransfer();
             dt.items.add(file);
             imageInput.files = dt.files;
-
             const reader = new FileReader();
             reader.onload = (ev) => {
                 imagePlaceholder.classList.add('hidden');
@@ -124,7 +119,8 @@
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const imageFile = document.getElementById('image').files[0];
-        let imageUrl = null;
+        let imageUrl = existingImageUrl;
+
         if (imageFile) {
             const fd = new FormData();
             fd.append('image', imageFile);
@@ -140,9 +136,16 @@
                 return;
             }
         }
-        const categoryIds = Array.from(document.querySelectorAll('input[name="categories"]:checked'))
-            .map(cb => parseInt(cb.value));
-        const payload = {profileImageUrl: imageUrl, interestCategoryIds: categoryIds};
+
+        const nickname = document.getElementById('nickname').value;
+        const categoryIds = Array.from(document.querySelectorAll('input[name="categories"]:checked')).map(cb => parseInt(cb.value));
+
+        const payload = {
+            nickname: nickname,
+            profileImageUrl: imageUrl,
+            interestCategoryIds: categoryIds
+        };
+
         const res = await fetch('/api/profile/me', {
             method: 'PATCH',
             headers: {'Content-Type': 'application/json', [csrfHeader]: csrfToken},

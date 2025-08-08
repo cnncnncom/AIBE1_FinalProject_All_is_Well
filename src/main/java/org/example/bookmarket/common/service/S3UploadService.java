@@ -20,15 +20,20 @@ public class S3UploadService {
     @Value("${spring.cloud.aws.s3.bucket.name}")
     private String bucketName;
 
-    public String upload(MultipartFile multipartFile, String dirName) {
+
+    public S3UploadResponse upload(MultipartFile multipartFile, String dirName) {
         try {
             String originalFilename = multipartFile.getOriginalFilename();
             String uniqueFilename = dirName + "/" + UUID.randomUUID() + "-" + originalFilename;
 
-            return s3Template
+            String url = s3Template
                     .upload(bucketName, uniqueFilename, multipartFile.getInputStream())
                     .getURL()
                     .toString();
+
+
+            return new S3UploadResponse(url, uniqueFilename);
+
         } catch (IOException e) {
             throw new CustomException(ErrorCode.S3_UPLOAD_FAILED);
         }

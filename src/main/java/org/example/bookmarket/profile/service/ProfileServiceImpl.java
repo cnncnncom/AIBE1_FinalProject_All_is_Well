@@ -4,12 +4,13 @@ import lombok.RequiredArgsConstructor;
 import org.example.bookmarket.category.entity.Category;
 import org.example.bookmarket.category.repository.CategoryRepository;
 import org.example.bookmarket.chat.dto.ChatSummary;
+import org.example.bookmarket.chat.entity.ChatChannel;
 import org.example.bookmarket.chat.entity.ChatMessage;
 import org.example.bookmarket.chat.repository.ChatChannelRepository;
 import org.example.bookmarket.chat.repository.ChatMessageRepository;
-import org.example.bookmarket.chat.entity.ChatChannel;
 import org.example.bookmarket.common.handler.exception.CustomException;
 import org.example.bookmarket.common.handler.exception.ErrorCode;
+import org.example.bookmarket.common.service.S3UploadResponse; // ★ import 추가
 import org.example.bookmarket.common.service.S3UploadService;
 import org.example.bookmarket.profile.dto.ProfileResponse;
 import org.example.bookmarket.profile.dto.ProfileUpdateRequest;
@@ -17,8 +18,8 @@ import org.example.bookmarket.trade.dto.PurchaseSummary;
 import org.example.bookmarket.trade.entity.Trade;
 import org.example.bookmarket.trade.repository.TradeRepository;
 import org.example.bookmarket.usedbook.dto.UsedBookSummary;
-import org.example.bookmarket.usedbook.repository.UsedBookRepository;
 import org.example.bookmarket.usedbook.entity.UsedBook;
+import org.example.bookmarket.usedbook.repository.UsedBookRepository;
 import org.example.bookmarket.user.dto.UserCategoryResponse;
 import org.example.bookmarket.user.entity.User;
 import org.example.bookmarket.user.entity.UserCategory;
@@ -30,8 +31,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -75,6 +77,15 @@ public class ProfileServiceImpl implements ProfileService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(ErrorCode.USER_NOT_FOUND));
 
+        if (request.nickname() != null && !request.nickname().isBlank()) {
+            if (!Objects.equals(user.getNickname(), request.nickname())) {
+                userRepository.findByNickname(request.nickname()).ifPresent(u -> {
+                    throw new CustomException(ErrorCode.NICKNAME_DUPLICATED);
+                });
+            }
+            user.setNickname(request.nickname());
+        }
+
         if (request.profileImageUrl() != null) {
             user.setProfileImageUrl(request.profileImageUrl());
         }
@@ -97,9 +108,12 @@ public class ProfileServiceImpl implements ProfileService {
         if (image == null || image.isEmpty()) {
             throw new CustomException(ErrorCode.INVALID_PROFILE_IMAGE);
         }
-        String url = s3UploadService.upload(image, "profile-images");
-        user.setProfileImageUrl(url);
-        return url;
+
+        S3UploadResponse response = s3UploadService.upload(image, "profile-images");
+        String imageUrl = response.url();
+        user.setProfileImageUrl(imageUrl);
+
+        return imageUrl;
     }
 
     @Override
@@ -128,9 +142,6 @@ public class ProfileServiceImpl implements ProfileService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 판매 완료된 책의 경우, 거래 내역에서 구매자 닉네임을 찾아 함께 반환합니다.
-     */
     @Override
     @Transactional(readOnly = true)
     public List<UsedBookSummary> getMySellBooks(Long userId) {
@@ -151,12 +162,12 @@ public class ProfileServiceImpl implements ProfileService {
                         }
                     }
                     return new UsedBookSummary(
-                            ub.getId(),               // 1. 중고책 ID
-                            ub.getBook().getTitle(),  // 2. 책 제목
-                            ub.getSellingPrice(),     // 3. 판매 가격
-                            ub.getStatus(),           // 4. 판매 상태
-                            buyerNickname,            // 5. 구매자 닉네임
-                            ub.getUpdatedAt()         // 6. 최종 수정일
+                            ub.getId(),
+                            ub.getBook().getTitle(),
+                            ub.getSellingPrice(),
+                            ub.getStatus(),
+                            buyerNickname,
+                            ub.getUpdatedAt()
                     );
                 })
                 .collect(Collectors.toList());
